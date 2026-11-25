@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -7,6 +7,13 @@ from app.models.category import Category
 from app.schemas.category import CategoryCreate, CategoryRead, CategoryTree
 
 router = APIRouter(prefix="/categories", tags=["Kategoriler"])
+
+
+def get_category_or_404(category_id: int, db: Session) -> Category:
+    category = db.get(Category, category_id)
+    if category is None:
+        raise HTTPException(status_code=404, detail="Kategori bulunamadı")
+    return category
 
 
 @router.get("", response_model=list[CategoryRead])
@@ -36,3 +43,35 @@ def category_tree(db: Session = Depends(get_db)):
         else:
             nodes[c.parent_id]["children"].append(nodes[c.id])
     return roots
+
+
+@router.put("/{category_id}", response_model=CategoryRead)
+def update_category(
+    category_id: int, data: CategoryCreate, db: Session = Depends(get_db)
+):
+    category = get_category_or_404(category_id, db)
+    parent_id = data.parent_id
+    while parent_id is not None:
+        if parent_id == category_id:
+            raise HTTPException(
+                status_code=400, detail="Kategori kendi altına taşınamaz"
+            )
+        parent_id = get_category_or_404(parent_id, db).parent_id
+    category.name = data.name
+    category.parent_id = data.parent_id
+    db.commit()
+    db.refresh(category)
+    return category
+
+
+@router.delete("/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_category(category_id: int, db: Session = Depends(get_db)):
+    category = get_category_or_404(category_id, db)
+    has_child = db.scalar(select(Category.id).where(Category.parent_id == category_id))
+    if has_child is not None:
+        raise HTTPException(
+            status_code=409, detail="Önce alt kategorileri silin ya da taşıyın"
+        )
+    db.delete(category)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
