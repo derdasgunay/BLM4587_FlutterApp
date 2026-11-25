@@ -34,14 +34,27 @@ def create_category(data: CategoryCreate, db: Session = Depends(get_db)):
 
 @router.get("/tree", response_model=list[CategoryTree])
 def category_tree(db: Session = Depends(get_db)):
-    categories = db.scalars(select(Category).order_by(Category.id)).all()
-    nodes = {c.id: {"id": c.id, "name": c.name, "children": []} for c in categories}
+    query = select(Category).order_by(Category.id)
+    categories = db.scalars(query).all()
+
+    nodes = {}
+    for category in categories:
+        node = {
+            "id": category.id,
+            "name": category.name,
+            "children": [],
+        }
+        nodes[category.id] = node
+
     roots = []
-    for c in categories:
-        if c.parent_id is None:
-            roots.append(nodes[c.id])
+    for category in categories:
+        node = nodes[category.id]
+        if category.parent_id is None:
+            roots.append(node)
         else:
-            nodes[c.parent_id]["children"].append(nodes[c.id])
+            parent_node = nodes[category.parent_id]
+            parent_node["children"].append(node)
+
     return roots
 
 
